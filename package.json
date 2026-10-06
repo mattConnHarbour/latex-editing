@@ -1,0 +1,31 @@
+{
+  "name": "superdoc-equations-demo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "test:e2e": "playwright test",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@superdoc/react": "^2.2.1",
+    "dwml-ts": "^0.5.3",
+    "jszip": "^3.10.2",
+    "katex": "^0.19.0",
+    "mathml2omml-plus": "^0.6.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.2.7"
+  }
+}
