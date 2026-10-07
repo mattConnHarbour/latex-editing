@@ -51,3 +51,8 @@ main {
   opacity: 0.45;
   cursor: wait;
 }
+
+.editor-host {
+  width: min(100%, 1280px);
+  margin-inline: auto;
+}
