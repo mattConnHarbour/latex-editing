@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 
-type EquationEditorProps = {
+export type EquationEditorProps = {
   equationNumber: number;
   initialLatex: string;
   position: { left: number; top: number };
