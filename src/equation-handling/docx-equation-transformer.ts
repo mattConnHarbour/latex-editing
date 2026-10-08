@@ -19,6 +19,11 @@ export type EquationReference = {
   paragraphOrdinal: number;
 };
 
+export type EquationInsertionPoint = {
+  offset: number;
+  paragraphOrdinal: number;
+};
+
 function parseXml(xml: string): XMLDocument {
   const document = new DOMParser().parseFromString(xml, 'application/xml');
   const parserError = document.querySelector('parsererror');
@@ -40,6 +45,13 @@ function mathmlFromLatex(latex: string): string {
   const math = renderedDocument.querySelector('math');
   if (!math) throw new Error('KaTeX did not produce MathML for this expression.');
   return new XMLSerializer().serializeToString(math);
+}
+
+function ommlFromLatex(latex: string): Element {
+  const replacementDocument = parseXml(mml2omml(mathmlFromLatex(latex)));
+  const equation = replacementDocument.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath')[0];
+  if (!equation) throw new Error('The converted equation did not contain an OMML math object.');
+  return equation;
 }
 
 async function readDocumentXml(bytes: Uint8Array): Promise<{ archive: JSZip; xml: string }> {
@@ -68,6 +80,126 @@ function inspectEquations(xml: string): EquationReference[] {
   );
 }
 
+function documentParagraphs(document: XMLDocument): Element[] {
+  const body = document.getElementsByTagNameNS(WORD_NAMESPACE, 'body')[0];
+  return body
+    ? Array.from(body.children).filter(
+        (element) => element.namespaceURI === WORD_NAMESPACE && element.localName === 'p',
+      )
+    : [];
+}
+
+function setRunText(run: Element, text: string) {
+  const textNodes = Array.from(run.getElementsByTagNameNS(WORD_NAMESPACE, 't'));
+  for (const node of textNodes) node.remove();
+  if (!text) return;
+  const textNode = run.ownerDocument.createElementNS(WORD_NAMESPACE, 'w:t');
+  if (/^\s|\s$/.test(text)) textNode.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
+  textNode.textContent = text;
+  run.append(textNode);
+}
+
+function topLevelParagraphChild(paragraph: Element, node: Node): Node | null {
+  let current: Node | null = node;
+  while (current?.parentNode && current.parentNode !== paragraph) current = current.parentNode;
+  return current?.parentNode === paragraph ? current : null;
+}
+
+function paragraphSplitBoundary(paragraph: Element, offset: number): Node | null {
+  const runs = Array.from(paragraph.getElementsByTagNameNS(WORD_NAMESPACE, 'r'));
+  let consumed = 0;
+
+  for (const run of runs) {
+    const text = Array.from(run.getElementsByTagNameNS(WORD_NAMESPACE, 't'))
+      .map((node) => node.textContent ?? '')
+      .join('');
+    const nextOffset = consumed + text.length;
+    if (offset <= nextOffset) {
+      const localOffset = Math.max(0, offset - consumed);
+      const parent = run.parentNode;
+      const topLevelChild = topLevelParagraphChild(paragraph, run);
+      if (!parent || !topLevelChild) return null;
+      if (localOffset === 0) return topLevelChild;
+      if (localOffset === text.length) return topLevelChild.nextSibling;
+      if (topLevelChild === run) {
+        const trailingRun = run.cloneNode(true) as Element;
+        setRunText(run, text.slice(0, localOffset));
+        setRunText(trailingRun, text.slice(localOffset));
+        parent.insertBefore(trailingRun, run.nextSibling);
+        return trailingRun;
+      }
+      throw new Error('Equations cannot yet be inserted in the middle of nested text content.');
+    }
+    consumed = nextOffset;
+  }
+
+  return null;
+}
+
+function createDisplayEquationParagraph(document: XMLDocument, equation: Element): Element {
+  const paragraph = document.createElementNS(WORD_NAMESPACE, 'w:p');
+  const paragraphProperties = document.createElementNS(WORD_NAMESPACE, 'w:pPr');
+  const spacing = document.createElementNS(WORD_NAMESPACE, 'w:spacing');
+  spacing.setAttributeNS(WORD_NAMESPACE, 'w:before', '0');
+  spacing.setAttributeNS(WORD_NAMESPACE, 'w:after', '140');
+  paragraphProperties.append(spacing);
+  paragraph.append(paragraphProperties);
+
+  const mathParagraph = document.createElementNS(MATH_NAMESPACE, 'm:oMathPara');
+  const mathParagraphProperties = document.createElementNS(MATH_NAMESPACE, 'm:oMathParaPr');
+  const justification = document.createElementNS(MATH_NAMESPACE, 'm:jc');
+  justification.setAttributeNS(MATH_NAMESPACE, 'm:val', 'centerGroup');
+  mathParagraphProperties.append(justification);
+  mathParagraph.append(mathParagraphProperties, document.importNode(equation, true));
+  paragraph.append(mathParagraph);
+  return paragraph;
+}
+
+function insertDisplayEquationAtTextOffset(paragraph: Element, offset: number, equation: Element) {
+  const document = paragraph.ownerDocument;
+  const parent = paragraph.parentNode;
+  if (!parent) throw new Error('The selected paragraph is detached from the document.');
+  const boundary = paragraphSplitBoundary(paragraph, offset);
+  const equationParagraph = createDisplayEquationParagraph(document, equation);
+
+  if (!boundary) {
+    parent.insertBefore(equationParagraph, paragraph.nextSibling);
+    return;
+  }
+
+  const firstContent = Array.from(paragraph.childNodes).find(
+    (node) => !(node instanceof Element && node.namespaceURI === WORD_NAMESPACE && node.localName === 'pPr'),
+  );
+  if (boundary === firstContent) {
+    parent.insertBefore(equationParagraph, paragraph);
+    return;
+  }
+
+  const trailingParagraph = document.createElementNS(WORD_NAMESPACE, 'w:p');
+  const paragraphProperties = Array.from(paragraph.children).find(
+    (element) => element.namespaceURI === WORD_NAMESPACE && element.localName === 'pPr',
+  );
+  if (paragraphProperties) trailingParagraph.append(paragraphProperties.cloneNode(true));
+  let trailingNode: Node | null = boundary;
+  while (trailingNode) {
+    const nextNode: Node | null = trailingNode.nextSibling;
+    trailingParagraph.append(trailingNode);
+    trailingNode = nextNode;
+  }
+
+  parent.insertBefore(equationParagraph, paragraph.nextSibling);
+  parent.insertBefore(trailingParagraph, equationParagraph.nextSibling);
+}
+
+async function createUpdatedDocument(archive: JSZip, document: XMLDocument) {
+  archive.file(DOCUMENT_XML_PATH, new XMLSerializer().serializeToString(document));
+  const nextBytes = await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+  const fileBuffer = nextBytes.buffer.slice(nextBytes.byteOffset, nextBytes.byteOffset + nextBytes.byteLength) as ArrayBuffer;
+  const file = new File([fileBuffer], 'calculus-equations-edited.docx', { type: DOCX_MIME });
+  const equations = inspectEquations(await archive.file(DOCUMENT_XML_PATH)!.async('string'));
+  return { bytes: nextBytes, equations, file };
+}
+
 export async function loadEquationDocument(source: string | Blob): Promise<EquationDocument> {
   const response = typeof source === 'string' ? await fetch(source) : null;
   if (response && !response.ok) throw new Error(`Could not load the DOCX (${response.status}).`);
@@ -82,29 +214,50 @@ export async function replaceEquation(
   reference: Pick<EquationReference, 'equationIndexInParagraph' | 'paragraphOrdinal'>,
   latex: string,
 ): Promise<EquationDocument & { file: File }> {
-  const mathml = mathmlFromLatex(latex);
-  const replacementOmml = mml2omml(mathml);
   const { archive, xml } = await readDocumentXml(bytes);
   const document = parseXml(xml);
-  const body = document.getElementsByTagNameNS(WORD_NAMESPACE, 'body')[0];
-  const paragraphs = body
-    ? Array.from(body.children).filter(
-        (element) => element.namespaceURI === WORD_NAMESPACE && element.localName === 'p',
-      )
-    : [];
+  const paragraphs = documentParagraphs(document);
   const paragraph = paragraphs[reference.paragraphOrdinal];
   const target = paragraph?.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath')[reference.equationIndexInParagraph];
   if (!target) throw new Error('The selected equation no longer exists in the document.');
 
-  const replacementDocument = parseXml(replacementOmml);
-  const replacement = replacementDocument.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath')[0];
-  if (!replacement) throw new Error('The converted equation did not contain an OMML math object.');
+  target.replaceWith(document.importNode(ommlFromLatex(latex), true));
+  return createUpdatedDocument(archive, document);
+}
 
-  target.replaceWith(document.importNode(replacement, true));
-  archive.file(DOCUMENT_XML_PATH, new XMLSerializer().serializeToString(document));
-  const nextBytes = await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
-  const fileBuffer = nextBytes.buffer.slice(nextBytes.byteOffset, nextBytes.byteOffset + nextBytes.byteLength) as ArrayBuffer;
-  const file = new File([fileBuffer], 'calculus-equations-edited.docx', { type: DOCX_MIME });
-  const equations = inspectEquations(await archive.file(DOCUMENT_XML_PATH)!.async('string'));
-  return { bytes: nextBytes, equations, file };
+export async function deleteEquation(
+  bytes: Uint8Array,
+  reference: Pick<EquationReference, 'equationIndexInParagraph' | 'paragraphOrdinal'>,
+): Promise<EquationDocument & { file: File }> {
+  const { archive, xml } = await readDocumentXml(bytes);
+  const document = parseXml(xml);
+  const paragraph = documentParagraphs(document)[reference.paragraphOrdinal];
+  const target = paragraph?.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath')[reference.equationIndexInParagraph];
+  if (!target) throw new Error('The selected equation no longer exists in the document.');
+
+  const mathParagraph = target.parentElement;
+  if (
+    mathParagraph?.namespaceURI === MATH_NAMESPACE &&
+    mathParagraph.localName === 'oMathPara' &&
+    mathParagraph.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath').length === 1
+  ) {
+    mathParagraph.remove();
+  } else {
+    target.remove();
+  }
+  return createUpdatedDocument(archive, document);
+}
+
+export async function insertEquation(
+  bytes: Uint8Array,
+  insertionPoint: EquationInsertionPoint,
+  latex: string,
+): Promise<EquationDocument & { file: File }> {
+  const { archive, xml } = await readDocumentXml(bytes);
+  const document = parseXml(xml);
+  const paragraph = documentParagraphs(document)[insertionPoint.paragraphOrdinal];
+  if (!paragraph) throw new Error('The selected paragraph no longer exists in the document.');
+
+  insertDisplayEquationAtTextOffset(paragraph, insertionPoint.offset, ommlFromLatex(latex));
+  return createUpdatedDocument(archive, document);
 }

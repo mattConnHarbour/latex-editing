@@ -55,6 +55,9 @@ main {
 }
 
 .editor-host {
-  width: min(100%, 1280px);
-  margin-inline: auto;
+  width: 100%;
+}
+
+.editor-host .superdoc {
+  justify-content: center;
 }

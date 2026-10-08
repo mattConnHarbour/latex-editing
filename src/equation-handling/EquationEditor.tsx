@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 
 export type EquationEditorProps = {
-  equationNumber: number;
+  equationNumber?: number;
   initialLatex: string;
+  mode?: 'edit' | 'insert';
   position: { left: number; top: number };
   onCancel: () => void;
   onDone: (latex: string) => Promise<void>;
@@ -12,6 +13,7 @@ export type EquationEditorProps = {
 export default function EquationEditor({
   equationNumber,
   initialLatex,
+  mode = 'edit',
   position,
   onCancel,
   onDone,
@@ -40,6 +42,7 @@ export default function EquationEditor({
   }, [onCancel, saving]);
 
   const preview = useMemo(() => {
+    if (!previewLatex.trim()) return { error: null, html: '' };
     try {
       return {
         error: null,
@@ -61,7 +64,7 @@ export default function EquationEditor({
   }, [previewLatex]);
 
   async function submit() {
-    if (preview.error || saving || !latex.trim()) return;
+    if (preview.error || saving) return;
     setSaving(true);
     try {
       await onDone(latex);
@@ -81,8 +84,8 @@ export default function EquationEditor({
     >
       <div className='equation-editor__heading'>
         <div>
-          <span>Equation {equationNumber}</span>
-          <h2 id='equation-editor-title'>Edit LaTeX</h2>
+          <span>{mode === 'insert' ? 'New equation' : `Equation ${equationNumber}`}</span>
+          <h2 id='equation-editor-title'>{mode === 'insert' ? 'Insert equation' : 'Edit LaTeX'}</h2>
         </div>
         <button aria-label='Close equation editor' disabled={saving} onClick={onCancel} type='button'>
           ×
@@ -110,8 +113,8 @@ export default function EquationEditor({
 
       <div className='equation-editor__actions'>
         <button disabled={saving} onClick={onCancel} type='button'>Cancel</button>
-        <button disabled={Boolean(preview.error) || saving || !latex.trim()} onClick={() => void submit()} type='button'>
-          {saving ? 'Updating…' : 'Done'}
+        <button disabled={Boolean(preview.error) || saving} onClick={() => void submit()} type='button'>
+          {saving ? 'Updating…' : mode === 'edit' && !latex.trim() ? 'Delete' : 'Done'}
         </button>
       </div>
     </div>

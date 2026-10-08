@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { SuperDocEditor, type SuperDocRef } from '@superdoc/react';
 import '@superdoc/react/style.css';
 import { useEquationEditing } from './equation-handling';
@@ -17,6 +17,10 @@ export default function App() {
     initialDocument: INITIAL_DOCUMENT,
     onError: (error) => console.error('Equation editing failed.', error),
   });
+  const editorUi = useMemo(
+    () => ({ toolbar: equationHandler.toolbarConfig }),
+    [equationHandler.toolbarConfig],
+  );
 
   async function exportDocument() {
     if (exportingRef.current) return;
@@ -54,6 +58,7 @@ export default function App() {
           onException={reportDocumentError}
           onReady={equationHandler.onReady}
           ref={editorRef}
+          ui={editorUi}
         />
       </div>
       {equationHandler.editor}
