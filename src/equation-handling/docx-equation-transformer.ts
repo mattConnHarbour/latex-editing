@@ -14,9 +14,14 @@ export type EquationDocument = {
 };
 
 export type EquationReference = {
+  endOffset: number;
   equationIndexInParagraph: number;
+  isDisplay: boolean;
   latex: string;
   paragraphOrdinal: number;
+  paintedEndOffset: number;
+  paintedStartOffset: number;
+  startOffset: number;
 };
 
 export type EquationInsertionPoint = {
@@ -54,6 +59,19 @@ function ommlFromLatex(latex: string): Element {
   return equation;
 }
 
+export function equationOoxmlFromLatex(latex: string): string {
+  return new XMLSerializer().serializeToString(ommlFromLatex(latex));
+}
+
+export function mathParagraphOoxmlFromLatex(latex: string): string {
+  const equation = equationOoxmlFromLatex(latex);
+  return `<m:oMathPara><m:oMathParaPr><m:jc m:val="centerGroup"/></m:oMathParaPr>${equation}</m:oMathPara>`;
+}
+
+export function displayEquationOoxmlFromLatex(latex: string): string {
+  return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>${mathParagraphOoxmlFromLatex(latex)}</w:p>`;
+}
+
 async function readDocumentXml(bytes: Uint8Array): Promise<{ archive: JSZip; xml: string }> {
   const archive = await JSZip.loadAsync(bytes);
   const documentPart = archive.file(DOCUMENT_XML_PATH);
@@ -69,15 +87,60 @@ function inspectEquations(xml: string): EquationReference[] {
     (element) => element.namespaceURI === WORD_NAMESPACE && element.localName === 'p',
   );
   const serializer = new XMLSerializer();
-  return paragraphs.flatMap((paragraph, paragraphOrdinal) =>
-    Array.from(paragraph.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath')).map(
+  return paragraphs.flatMap((paragraph, paragraphOrdinal) => {
+    let offset = 0;
+    let paintedOffset = 0;
+    const offsets = new Map<Element, {
+      endOffset: number;
+      paintedEndOffset: number;
+      paintedStartOffset: number;
+      startOffset: number;
+    }>();
+    const visit = (element: Element) => {
+      if (element.namespaceURI === WORD_NAMESPACE && ['del', 'moveFrom'].includes(element.localName)) return;
+      if (element.namespaceURI === MATH_NAMESPACE && element.localName === 'oMath') {
+        const startOffset = offset;
+        const paintedStartOffset = paintedOffset;
+        for (const text of Array.from(element.getElementsByTagNameNS(MATH_NAMESPACE, 't'))) {
+          offset += text.textContent?.length ?? 0;
+        }
+        paintedOffset += 1;
+        offsets.set(element, { endOffset: offset, paintedEndOffset: paintedOffset, paintedStartOffset, startOffset });
+        return;
+      }
+      if (
+        (element.namespaceURI === WORD_NAMESPACE && ['t', 'delText'].includes(element.localName)) ||
+        (element.namespaceURI === MATH_NAMESPACE && element.localName === 't')
+      ) {
+        offset += element.textContent?.length ?? 0;
+        paintedOffset += element.textContent?.length ?? 0;
+        return;
+      }
+      if (
+        element.namespaceURI === WORD_NAMESPACE &&
+        ['tab', 'br', 'cr', 'noBreakHyphen', 'footnoteReference', 'endnoteReference'].includes(element.localName)
+      ) {
+        offset += 1;
+        paintedOffset += 1;
+        return;
+      }
+      for (const child of Array.from(element.children)) visit(child);
+    };
+    visit(paragraph);
+    return Array.from(paragraph.getElementsByTagNameNS(MATH_NAMESPACE, 'oMath')).map(
       (equation, equationIndexInParagraph) => ({
+        endOffset: offsets.get(equation)?.endOffset ?? 0,
         equationIndexInParagraph,
+        isDisplay:
+          equation.parentElement?.namespaceURI === MATH_NAMESPACE && equation.parentElement.localName === 'oMathPara',
         latex: ommlToLatex(serializer.serializeToString(equation)),
         paragraphOrdinal,
+        paintedEndOffset: offsets.get(equation)?.paintedEndOffset ?? 0,
+        paintedStartOffset: offsets.get(equation)?.paintedStartOffset ?? 0,
+        startOffset: offsets.get(equation)?.startOffset ?? 0,
       }),
-    ),
-  );
+    );
+  });
 }
 
 function documentParagraphs(document: XMLDocument): Element[] {

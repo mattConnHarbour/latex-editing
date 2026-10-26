@@ -3,3 +3,9 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@superdoc/docx-engine@0.24.0-next.20'
+
+overrides:
+  '@superdoc/docx-engine': file:../OMML-insertion-test/superdoc/v2/superdoc-docx-engine-0.24.0-next.20.tgz

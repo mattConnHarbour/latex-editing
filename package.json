@@ -11,13 +11,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@superdoc/react": "^2.2.1",
+    "@superdoc/docx-engine": "file:../OMML-insertion-test/superdoc/v2/superdoc-docx-engine-0.24.0-next.20.tgz",
+    "@superdoc/react": "file:../OMML-insertion-test/superdoc/public/packages/react/superdoc-react-2.20.0-next.19.tgz",
     "dwml-ts": "^0.5.3",
     "jszip": "^3.10.2",
     "katex": "^0.19.0",
     "mathml2omml-plus": "^0.6.4",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "superdoc": "file:../OMML-insertion-test/superdoc/public/packages/superdoc/superdoc-internal.tgz"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

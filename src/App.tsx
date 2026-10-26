@@ -14,6 +14,7 @@ export default function App() {
   const exportingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
   const equationHandler = useEquationEditing({
+    editorRef,
     initialDocument: INITIAL_DOCUMENT,
     onError: (error) => console.error('Equation editing failed.', error),
   });
