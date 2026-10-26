@@ -541,7 +541,7 @@ packages:
     os: [win32]
 
   '@superdoc/docx-engine@file:../OMML-insertion-test/superdoc/v2/superdoc-docx-engine-0.24.0-next.20.tgz':
-    resolution: {integrity: sha512-5IlTuGKSbkz8h0NY2Ll7tJ1dBCtd/CYe1RAJqoGP1ar1RjGTs/2BIVDiC32NI52Dsb/oU0aO5nPE5HSzT7Uu2g==, tarball: file:../OMML-insertion-test/superdoc/v2/superdoc-docx-engine-0.24.0-next.20.tgz}
+    resolution: {integrity: sha512-s6sPKjWyKok52EVgm2CC5fUS9Yy9UKYGtCthJCoYdixnjRX++Mxb0vtPhYVOYB54RRrb306ePiUd3e7dlnPc+A==, tarball: file:../OMML-insertion-test/superdoc/v2/superdoc-docx-engine-0.24.0-next.20.tgz}
     version: 0.24.0-next.20
     peerDependencies:
       '@hocuspocus/provider': ^2.13.6

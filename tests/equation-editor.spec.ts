@@ -151,3 +151,23 @@ test('places the caret after a clicked equation for atomic Backspace deletion', 
     .toHaveCount(0, { timeout: 120_000 });
   expect(errors).toEqual([]);
 });
+
+test('inserts a paragraph after an atomic equation with Enter', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  page.on('pageerror', (error) => errors.push(String(error)));
+
+  await page.goto('/');
+  await expect(page.getByText('30 equations ready to edit')).toBeVisible({ timeout: 120_000 });
+  const equation = page.locator('.editor-host math').nth(7);
+  await equation.click();
+  await expect(page.getByRole('dialog', { name: 'Edit LaTeX' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(2_000);
+  await expect(equation).toBeVisible();
+  expect(errors).toEqual([]);
+});
